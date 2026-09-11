@@ -12,12 +12,15 @@ IP=${SCANNER_IP}
 OUT=/out
 STATE=/state/duplex
 PEND=/state/pending
+PAPER=/state/paper
+PAUSED=/state/paused
 DEV="airscan:e0:brother"
 MODE=${SCAN_MODE:-Gray}
 RES=${SCAN_RESOLUTION:-300}
 POLL=${POLL_INTERVAL:-2}
 
 armed=1
+was_paused=0
 
 adf_state() {
   curl -s --max-time 5 "http://$IP/eSCL/ScannerStatus" | grep -o 'ScannerAdf[A-Za-z]*'
@@ -27,14 +30,45 @@ stamp() {
   date +%Y%m%d-%H%M%S
 }
 
+# Page dimensions in millimetres, written by the web interface.
+paper_dims() {
+  local size="letter"
+  [ -f "$PAPER" ] && size=$(cat "$PAPER")
+  case "$size" in
+    a4)     echo "210 297" ;;
+    legal)  echo "215.9 355.6" ;;
+    a5)     echo "148 210" ;;
+    receipt) echo "80 297" ;;
+    *)      echo "215.9 279.4" ;;
+  esac
+}
+
 while true; do
+
+  if [ -f "$PAUSED" ]; then
+    if [ "$was_paused" = "0" ]; then
+      echo "polling paused, the scanner is not being contacted"
+      was_paused=1
+    fi
+    sleep "$POLL"
+    continue
+  fi
+
+  if [ "$was_paused" = "1" ]; then
+    echo "polling resumed"
+    was_paused=0
+    armed=1
+  fi
+
   st=$(adf_state)
 
   if [ "$st" = "ScannerAdfLoaded" ] && [ "$armed" = "1" ]; then
+    read -r W H <<< "$(paper_dims)"
     d=$(mktemp -d)
-    echo "paper detected, scanning"
+    echo "paper detected, scanning at ${W}x${H}mm"
 
     scanimage -d "$DEV" --source ADF --mode "$MODE" --resolution "$RES" \
+      -x "$W" -y "$H" \
       --format=jpeg --batch="$d/p%03d.jpg" 2>&1 | grep -v '^Scanning page' || true
 
     n=$(ls "$d"/*.jpg 2>/dev/null | wc -l)

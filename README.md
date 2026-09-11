@@ -32,6 +32,20 @@ writes them as two separate PDFs rather than producing a scrambled document.
 Turning the mode off discards any held front sides, so a forgotten toggle
 cannot silently pair unrelated stacks.
 
+## Paper size
+
+Pick the size in the web interface. The feeder does not auto crop, so a page
+scanned at the wrong setting either gets blank space below it or loses the
+bottom of the page. Letter, A4, Legal, A5 and receipt widths are available.
+
+## Pausing
+
+Polling keeps a short conversation going with the scanner, which on some
+printers prevents them reaching their deepest sleep state. The watch toggle
+stops the polling entirely so the printer is left alone, and you turn it back
+on when you want to scan. Leave it running unless you find your printer will
+not sleep.
+
 ## Requirements
 
 An eSCL capable scanner with a document feeder, reachable over the network at
@@ -88,6 +102,9 @@ initialise without one or the other.
 
 Anything loaded into the feeder gets scanned, including paper you put there
 for some other reason. There is no grace period.
+
+Paper size, double-sided mode and the paused state live in `/state`, so they
+survive a restart.
 
 ## License
 
