@@ -38,6 +38,18 @@ Pick the size in the web interface. The feeder does not auto crop, so a page
 scanned at the wrong setting either gets blank space below it or loses the
 bottom of the page. Letter, A4, Legal, A5 and receipt widths are available.
 
+## Resolution
+
+Set it in the web interface. 300 dpi suits general documents and is what OCR
+wants. 600 dpi is available for fine print or photographs, at roughly four
+times the file size. A custom value can be entered, but the scanner will fall
+back to the nearest resolution it actually supports.
+
+`scanwatch` reads the supported values from the scanner on startup and shows
+the real ceiling for your hardware in the interface. A Brother DCP-L2550DW
+offers 100, 200, 300 and 600 dpi over eSCL. The sensor is capable of more, but
+the driverless protocol does not expose it.
+
 ## Pausing
 
 Polling keeps a short conversation going with the scanner, which on some
@@ -86,13 +98,14 @@ activity log.
 | Variable | Default | Notes |
 | --- | --- | --- |
 | `SCANNER_IP` | required | Address of the scanner |
-| `POLL_INTERVAL` | `2` | Seconds between feeder checks |
-| `SCAN_MODE` | `Gray` | `Gray`, `Color` or `Lineart` |
-| `SCAN_RESOLUTION` | `300` | DPI. 300 is plenty for OCR |
 | `PUID` / `PGID` | `1000` | Ownership of the written PDFs |
+| `TZ` | `UTC` | Timezone for log timestamps and PDF filenames |
 
 Set `PUID` and `PGID` to match whatever Paperless runs as, or it will not be
 able to read the files.
+
+Everything else is set in the web interface: paper size, colour, resolution,
+the check interval, double-sided mode and whether the watcher is running.
 
 ## Notes
 
@@ -103,8 +116,8 @@ initialise without one or the other.
 Anything loaded into the feeder gets scanned, including paper you put there
 for some other reason. There is no grace period.
 
-Paper size, double-sided mode and the paused state live in `/state`, so they
-survive a restart.
+All settings live in `/state`, so they survive a restart. Delete a file from
+that directory to put the corresponding setting back to its default.
 
 ## License
 

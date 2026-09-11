@@ -5,11 +5,9 @@ services:
     restart: unless-stopped
     environment:
       SCANNER_IP: 172.23.24.78
-      POLL_INTERVAL: 2
-      SCAN_MODE: Gray
-      SCAN_RESOLUTION: 300
       PUID: 1000
       PGID: 1000
+      TZ: America/Los_Angeles
     volumes:
       # Point this at the Paperless consume directory
       - /opt/docker/paperless/consume:/out

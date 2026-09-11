@@ -8,6 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       python3 \
       python3-flask \
       gosu \
+      tzdata \
       ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
@@ -20,10 +21,8 @@ WORKDIR /app
 EXPOSE 8080
 
 ENV SCANNER_IP="" \
-    POLL_INTERVAL=2 \
-    SCAN_MODE=Gray \
-    SCAN_RESOLUTION=300 \
     PUID=1000 \
-    PGID=1000
+    PGID=1000 \
+    TZ=UTC
 
 ENTRYPOINT ["/app/entrypoint.sh"]

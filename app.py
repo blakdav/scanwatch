@@ -2,9 +2,12 @@
 """scanwatch: watches the scanner's document feeder and files PDFs."""
 
 import collections
+import datetime
 import os
+import re
 import subprocess
 import threading
+import urllib.request
 
 from flask import Flask, jsonify, render_template_string, request
 
@@ -14,7 +17,25 @@ STATE = "/state/duplex"
 PEND = "/state/pending"
 PAPER = "/state/paper"
 PAUSED = "/state/paused"
+RESFILE = "/state/resolution"
+POLLFILE = "/state/poll"
+MODEFILE = "/state/mode"
 OUT = "/out"
+
+SCANNER_IP = os.environ.get("SCANNER_IP", "")
+DEFAULT_RES = 300
+DEFAULT_POLL = 2.0
+DEFAULT_MODE = "Gray"
+
+COLOR_MODES = {
+    "Gray": "Greyscale",
+    "Color": "Colour",
+    "Lineart": "Black and white",
+}
+
+# Filled in from the scanner itself so the interface can state the real
+# ceiling for whatever hardware is attached.
+DEVICE = {"model": "", "resolutions": [], "max": None}
 
 PAPER_SIZES = {
     "letter": "Letter, 8.5 by 11 inches",
@@ -24,7 +45,24 @@ PAPER_SIZES = {
     "receipt": "Receipt, 80 mm wide",
 }
 
-LOG = collections.deque(maxlen=100)
+_LOG = collections.deque(maxlen=100)
+
+
+class Log:
+    """Log buffer that stamps every line as it arrives."""
+
+    def append(self, line):
+        ts = datetime.datetime.now().strftime("%H:%M:%S")
+        _LOG.append("%s  %s" % (ts, line))
+
+    def __iter__(self):
+        return iter(_LOG)
+
+    def __len__(self):
+        return len(_LOG)
+
+
+LOG = Log()
 
 
 def runner():
@@ -42,6 +80,63 @@ def runner():
             if line:
                 LOG.append(line)
         LOG.append("watcher exited, restarting")
+
+
+def probe_device():
+    """Read the model name and the feeder's supported resolutions."""
+    url = "http://%s/eSCL/ScannerCapabilities" % SCANNER_IP
+    try:
+        with urllib.request.urlopen(url, timeout=8) as r:
+            xml = r.read().decode("utf-8", "replace")
+    except Exception as e:
+        LOG.append("could not read scanner capabilities: %s" % e)
+        return
+
+    m = re.search(r"<pwg:MakeAndModel>([^<]+)<", xml)
+    if m:
+        DEVICE["model"] = m.group(1).strip()
+
+    # Prefer the feeder's block; fall back to the whole document.
+    block = xml
+    a = re.search(r"<scan:AdfSimplexInputCaps>(.*?)</scan:AdfSimplexInputCaps>", xml, re.S)
+    if a:
+        block = a.group(1)
+
+    res = sorted({int(v) for v in re.findall(r"<scan:XResolution>(\d+)<", block)})
+    if res:
+        DEVICE["resolutions"] = res
+        DEVICE["max"] = res[-1]
+        LOG.append("scanner reports %s, up to %d dpi over the feeder"
+                   % (DEVICE["model"] or "an unknown model", DEVICE["max"]))
+
+
+def current_res():
+    if os.path.exists(RESFILE):
+        try:
+            with open(RESFILE) as fh:
+                return int(fh.read().strip())
+        except ValueError:
+            pass
+    return DEFAULT_RES
+
+
+def current_poll():
+    if os.path.exists(POLLFILE):
+        try:
+            with open(POLLFILE) as fh:
+                return float(fh.read().strip())
+        except ValueError:
+            pass
+    return DEFAULT_POLL
+
+
+def current_mode():
+    if os.path.exists(MODEFILE):
+        with open(MODEFILE) as fh:
+            v = fh.read().strip()
+        if v in COLOR_MODES:
+            return v
+    return DEFAULT_MODE
 
 
 def current_paper():
@@ -133,6 +228,46 @@ PAGE = """<!doctype html>
     color: var(--text);
   }
   select:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
+  .choices { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+  .choice {
+    flex: 1 1 7rem;
+    font: inherit;
+    padding: 0.7rem 0.6rem;
+    border-radius: 7px;
+    border: 1px solid var(--line);
+    background: #14161a;
+    color: var(--text);
+    cursor: pointer;
+    text-align: center;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .choice:hover { border-color: #3b4250; }
+  .choice:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
+  .choice.sel { border-color: var(--live); background: #1b2a24; }
+  .choice small { display: block; color: var(--muted); font-size: 0.75rem; margin-top: 0.15rem; }
+  .row { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
+  input[type=number] {
+    flex: 1;
+    font: inherit;
+    padding: 0.7rem 0.8rem;
+    border-radius: 7px;
+    border: 1px solid var(--line);
+    background: #14161a;
+    color: var(--text);
+    min-width: 0;
+  }
+  input[type=number]:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
+  .row button {
+    font: inherit;
+    padding: 0.7rem 1.1rem;
+    border-radius: 7px;
+    border: 1px solid var(--line);
+    background: var(--panel);
+    color: var(--text);
+    cursor: pointer;
+  }
+  .row button:hover { border-color: #3b4250; }
+  .note { color: var(--muted); font-size: 0.8rem; margin: 0.6rem 0 0; }
   .status {
     margin: 1.25rem 0 0;
     padding: 0.85rem 1rem;
@@ -183,6 +318,33 @@ PAGE = """<!doctype html>
     <select id="paper" onchange="setPaper()"></select>
   </div>
 
+  <div class="field">
+    <label>Colour</label>
+    <div class="choices" id="modes"></div>
+  </div>
+
+  <div class="field">
+    <label>Scan resolution</label>
+    <div class="choices">
+      <button class="choice" id="r300" onclick="setRes(300)">300 dpi<small>General documents</small></button>
+      <button class="choice" id="r600" onclick="setRes(600)">600 dpi<small>High resolution</small></button>
+    </div>
+    <div class="row">
+      <input type="number" id="customRes" min="50" max="4800" step="10" placeholder="Custom dpi">
+      <button onclick="setCustomRes()">Set</button>
+    </div>
+    <p class="note" id="resNote"></p>
+  </div>
+
+  <div class="field">
+    <label for="pollSecs">Check the feeder every</label>
+    <div class="row">
+      <input type="number" id="pollSecs" min="1" max="3600" step="1">
+      <button onclick="setPoll()">Set</button>
+    </div>
+    <p class="note">Seconds between checks. Longer intervals leave the printer alone more of the time.</p>
+  </div>
+
   <p class="status" id="status" hidden></p>
 
   <h2>Activity</h2>
@@ -230,6 +392,39 @@ async function refresh() {
   }
   if (document.activeElement !== sel) sel.value = d.paper;
 
+  const mw = document.getElementById('modes');
+  if (!mw.children.length) {
+    for (const [k, label] of Object.entries(d.color_modes)) {
+      const b = document.createElement('button');
+      b.className = 'choice';
+      b.dataset.mode = k;
+      b.textContent = label;
+      b.onclick = () => setMode(k);
+      mw.appendChild(b);
+    }
+  }
+  for (const b of mw.children) b.classList.toggle('sel', b.dataset.mode === d.mode);
+
+  document.getElementById('r300').classList.toggle('sel', d.resolution === 300);
+  document.getElementById('r600').classList.toggle('sel', d.resolution === 600);
+  const cr = document.getElementById('customRes');
+  if (document.activeElement !== cr) {
+    cr.value = (d.resolution === 300 || d.resolution === 600) ? '' : d.resolution;
+  }
+
+  const note = document.getElementById('resNote');
+  let txt = 'Currently ' + d.resolution + ' dpi. ';
+  if (d.device && d.device.max) {
+    txt += d.device.max + ' dpi is the highest the ' + (d.device.model || 'scanner') +
+           ' offers over the network. Higher values are accepted but the scanner will fall back to the nearest it supports.';
+  } else {
+    txt += 'The scanner has not reported its supported resolutions yet.';
+  }
+  note.textContent = txt;
+
+  const ps = document.getElementById('pollSecs');
+  if (document.activeElement !== ps) ps.value = d.poll;
+
   const s = document.getElementById('status');
   if (d.pending) {
     s.hidden = false;
@@ -247,6 +442,42 @@ async function refresh() {
 
 async function flip(what) {
   await fetch('/api/toggle/' + what, { method: 'POST' });
+  refresh();
+}
+
+async function setMode(m) {
+  await fetch('/api/mode', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode: m }),
+  });
+  refresh();
+}
+
+async function setRes(dpi) {
+  await fetch('/api/resolution', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ dpi: dpi }),
+  });
+  document.getElementById('customRes').value = '';
+  refresh();
+}
+
+async function setCustomRes() {
+  const v = parseInt(document.getElementById('customRes').value, 10);
+  if (!v) return;
+  await setRes(v);
+}
+
+async function setPoll() {
+  const v = parseFloat(document.getElementById('pollSecs').value);
+  if (!v) return;
+  await fetch('/api/poll', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ seconds: v }),
+  });
   refresh();
 }
 
@@ -281,7 +512,12 @@ def state():
         paused=os.path.exists(PAUSED),
         paper=current_paper(),
         paper_sizes=PAPER_SIZES,
-        log=list(LOG),
+        resolution=current_res(),
+        poll=current_poll(),
+        mode=current_mode(),
+        color_modes=COLOR_MODES,
+        device=DEVICE,
+        log=list(_LOG),
     )
 
 
@@ -326,11 +562,54 @@ def set_paper():
     return jsonify(ok=True)
 
 
+@app.route("/api/resolution", methods=["POST"])
+def set_resolution():
+    try:
+        dpi = int((request.get_json(silent=True) or {}).get("dpi"))
+    except (TypeError, ValueError):
+        return jsonify(ok=False, error="resolution must be a whole number"), 400
+    if not 50 <= dpi <= 4800:
+        return jsonify(ok=False, error="resolution out of range"), 400
+    with open(RESFILE, "w") as fh:
+        fh.write(str(dpi))
+    note = ""
+    if DEVICE["resolutions"] and dpi not in DEVICE["resolutions"]:
+        note = " (not one of the values the scanner advertises, it will pick the nearest)"
+    LOG.append("resolution set to %d dpi%s" % (dpi, note))
+    return jsonify(ok=True)
+
+
+@app.route("/api/poll", methods=["POST"])
+def set_poll():
+    try:
+        secs = float((request.get_json(silent=True) or {}).get("seconds"))
+    except (TypeError, ValueError):
+        return jsonify(ok=False, error="interval must be a number"), 400
+    if not 1 <= secs <= 3600:
+        return jsonify(ok=False, error="interval must be between 1 and 3600 seconds"), 400
+    with open(POLLFILE, "w") as fh:
+        fh.write("%g" % secs)
+    LOG.append("checking the feeder every %g seconds" % secs)
+    return jsonify(ok=True)
+
+
+@app.route("/api/mode", methods=["POST"])
+def set_mode():
+    mode = (request.get_json(silent=True) or {}).get("mode", "")
+    if mode not in COLOR_MODES:
+        return jsonify(ok=False, error="unknown colour mode"), 400
+    with open(MODEFILE, "w") as fh:
+        fh.write(mode)
+    LOG.append("scanning in " + COLOR_MODES[mode].lower())
+    return jsonify(ok=True)
+
+
 @app.route("/healthz")
 def healthz():
     return jsonify(ok=True, out_writable=os.access(OUT, os.W_OK))
 
 
 if __name__ == "__main__":
+    threading.Thread(target=probe_device, daemon=True).start()
     threading.Thread(target=runner, daemon=True).start()
     app.run(host="0.0.0.0", port=8080)
