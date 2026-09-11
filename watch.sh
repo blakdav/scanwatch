@@ -14,10 +14,12 @@ STATE=/state/duplex
 PEND=/state/pending
 PAPER=/state/paper
 PAUSED=/state/paused
+RESFILE=/state/resolution
+POLLFILE=/state/poll
 DEV="airscan:e0:brother"
-MODE=${SCAN_MODE:-Gray}
-RES=${SCAN_RESOLUTION:-300}
-POLL=${POLL_INTERVAL:-2}
+MODEFILE=/state/mode
+DEFAULT_RES=300
+DEFAULT_POLL=2
 
 armed=1
 was_paused=0
@@ -28,6 +30,35 @@ adf_state() {
 
 stamp() {
   date +%Y%m%d-%H%M%S
+}
+
+# Settings below are read fresh each pass so the web interface can change
+# them without a restart.
+current_res() {
+  local v
+  [ -f "$RESFILE" ] && v=$(cat "$RESFILE")
+  case "$v" in
+    ''|*[!0-9]*) echo "$DEFAULT_RES" ;;
+    *) echo "$v" ;;
+  esac
+}
+
+current_mode() {
+  local v
+  [ -f "$MODEFILE" ] && v=$(cat "$MODEFILE")
+  case "$v" in
+    Gray|Color|Lineart) echo "$v" ;;
+    *) echo "Gray" ;;
+  esac
+}
+
+current_poll() {
+  local v
+  [ -f "$POLLFILE" ] && v=$(cat "$POLLFILE")
+  case "$v" in
+    ''|*[!0-9.]*) echo "$DEFAULT_POLL" ;;
+    *) echo "$v" ;;
+  esac
 }
 
 # Page dimensions in millimetres, written by the web interface.
@@ -50,7 +81,7 @@ while true; do
       echo "polling paused, the scanner is not being contacted"
       was_paused=1
     fi
-    sleep "$POLL"
+    sleep "$(current_poll)"
     continue
   fi
 
@@ -64,8 +95,10 @@ while true; do
 
   if [ "$st" = "ScannerAdfLoaded" ] && [ "$armed" = "1" ]; then
     read -r W H <<< "$(paper_dims)"
+    RES=$(current_res)
+    MODE=$(current_mode)
     d=$(mktemp -d)
-    echo "paper detected, scanning at ${W}x${H}mm"
+    echo "paper detected, scanning at ${W}x${H}mm, ${RES} dpi, ${MODE}"
 
     scanimage -d "$DEV" --source ADF --mode "$MODE" --resolution "$RES" \
       -x "$W" -y "$H" \
@@ -122,5 +155,5 @@ while true; do
     armed=1
   fi
 
-  sleep "$POLL"
+  sleep "$(current_poll)"
 done
