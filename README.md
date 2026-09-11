@@ -119,6 +119,12 @@ for some other reason. There is no grace period.
 All settings live in `/state`, so they survive a restart. Delete a file from
 that directory to put the corresponding setting back to its default.
 
+## Logging
+
+The web interface shows the last 100 actions. The same lines go to the
+container log, so `docker compose logs -f` works as well. Nothing is written
+to disk.
+
 ## License
 
 MIT

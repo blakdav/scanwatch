@@ -3,13 +3,19 @@
 
 import collections
 import datetime
+import logging
 import os
 import re
 import subprocess
+import sys
 import threading
 import urllib.request
 
 from flask import Flask, jsonify, render_template_string, request
+
+# Flask logs every request, and the web interface polls twice a second, which
+# buries everything else in the container log.
+logging.getLogger("werkzeug").setLevel(logging.ERROR)
 
 app = Flask(__name__)
 
@@ -49,11 +55,13 @@ _LOG = collections.deque(maxlen=100)
 
 
 class Log:
-    """Log buffer that stamps every line as it arrives."""
+    """Log buffer that stamps every line and mirrors it to the container log."""
 
     def append(self, line):
         ts = datetime.datetime.now().strftime("%H:%M:%S")
-        _LOG.append("%s  %s" % (ts, line))
+        stamped = "%s  %s" % (ts, line)
+        _LOG.append(stamped)
+        print(stamped, file=sys.stdout, flush=True)
 
     def __iter__(self):
         return iter(_LOG)
