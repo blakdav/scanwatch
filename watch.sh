@@ -23,6 +23,7 @@ DEFAULT_POLL=2
 
 armed=1
 was_paused=0
+announced=0
 
 adf_state() {
   curl -s --max-time 5 "http://$IP/eSCL/ScannerStatus" | grep -o 'ScannerAdf[A-Za-z]*'
@@ -108,6 +109,11 @@ while true; do
 
   st=$(adf_state)
 
+  if [ "$announced" = "0" ] && [ -n "$st" ]; then
+    echo "ready. Load a stack in the feeder to scan"
+    announced=1
+  fi
+
   if [ "$st" = "ScannerAdfLoaded" ] && [ "$armed" = "1" ]; then
     read -r W H <<< "$(paper_dims)"
     RES=$(current_res)
@@ -137,8 +143,10 @@ while true; do
 
           if [ "${#bk[@]}" -ne "${#fr[@]}" ]; then
             echo "page count mismatch: ${#fr[@]} fronts, ${#bk[@]} backs. Writing both stacks separately"
-            img2pdf "$f"/*.jpg -o "$OUT/$(stamp)_fronts.pdf"
-            img2pdf "$d"/*.jpg -o "$OUT/$(stamp)_backs.pdf"
+            base=$(stamp)
+            img2pdf "$f"/*.jpg -o "$OUT/${base}_fronts.pdf"
+            img2pdf "$d"/*.jpg -o "$OUT/${base}_backs.pdf"
+            echo "saved ${base}_fronts.pdf and ${base}_backs.pdf separately"
             rm -rf "$f"
           else
             m=$(mktemp -d)
@@ -148,15 +156,17 @@ while true; do
               cp "${bk[$i]}" "$m/$(printf '%04d' $((i * 2 + 1))).jpg"
               i=$((i + 1))
             done
-            img2pdf "$m"/*.jpg -o "$OUT/$(unique_name).pdf"
-            echo "wrote double-sided PDF, ${#fr[@]} sheets, $((${#fr[@]} * 2)) pages"
+            name=$(unique_name)
+            img2pdf "$m"/*.jpg -o "$OUT/$name.pdf"
+            echo "saved $name.pdf, ${#fr[@]} sheets scanned on both sides, $((${#fr[@]} * 2)) pages"
             rm -rf "$f" "$m"
           fi
         fi
 
       else
-        img2pdf "$d"/*.jpg -o "$OUT/$(unique_name).pdf"
-        echo "wrote PDF, $n pages"
+        name=$(unique_name)
+        img2pdf "$d"/*.jpg -o "$OUT/$name.pdf"
+        echo "saved $name.pdf, $n pages"
       fi
     else
       echo "no pages captured"
@@ -166,8 +176,13 @@ while true; do
     armed=0
   fi
 
-  if [ "$st" = "ScannerAdfEmpty" ]; then
+  if [ "$st" = "ScannerAdfEmpty" ] && [ "$armed" = "0" ]; then
     armed=1
+    if [ -f "$PEND" ]; then
+      echo "ready. The next stack will be the reverse sides of the document being held"
+    else
+      echo "ready. The next stack will start a new document"
+    fi
   fi
 
   sleep "$(current_poll)"
