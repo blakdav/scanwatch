@@ -1,0 +1,94 @@
+# scanwatch
+
+Turns a plain network scanner into a scan-to-Paperless appliance. Load paper in
+the document feeder and walk away. A PDF appears in the consume directory.
+
+No vendor drivers, no cloud service, no computer involved at scan time. The
+scanner is driven over eSCL, the vendor-neutral driverless scanning protocol
+also known as AirScan.
+
+## How it works
+
+`scanwatch` polls the scanner's `ScannerStatus` endpoint. When the feeder
+sensor reports paper, it scans the whole stack, assembles the pages into a
+PDF, and writes it to the output directory.
+
+One stack is one document. Feed several stacks back to back and you get
+several PDFs, so documents stay separated without any sorting afterwards.
+
+## Double-sided pages
+
+The feeder is single-sided, so both sides take two passes. Turn on
+double-sided mode in the web interface and it stays on until you turn it off.
+
+1. Feed the stack. The front sides are held.
+2. Take the output pile and put it straight back in. Do not reorder it.
+3. The two passes are merged into one PDF with the pages in the right order.
+
+The feeder reverses page order on output, so the reverse sides arrive backwards.
+`scanwatch` accounts for that. If the two passes have different page counts it
+writes them as two separate PDFs rather than producing a scrambled document.
+
+Turning the mode off discards any held front sides, so a forgotten toggle
+cannot silently pair unrelated stacks.
+
+## Requirements
+
+An eSCL capable scanner with a document feeder, reachable over the network at
+a fixed address. Check yours with:
+
+```
+curl -s http://SCANNER_IP/eSCL/ScannerCapabilities
+```
+
+XML in response means you are good. Look for an `AdfSimplexInputCaps` section
+to confirm the feeder is exposed, and for `DetectPaperLoaded` in `AdfOptions`
+to confirm the sensor can be polled.
+
+Verified on a Brother DCP-L2550DW.
+
+## Running it
+
+```yaml
+services:
+  ScanWatch:
+    image: ghcr.io/blakdav/scanwatch:latest
+    container_name: ScanWatch
+    restart: unless-stopped
+    environment:
+      SCANNER_IP: 172.23.24.78
+    volumes:
+      - /opt/docker/paperless/consume:/out
+      - /opt/docker/scanwatch/state:/state
+    ports:
+      - "8080:8080"
+```
+
+Then open port 8080 in a browser for the double-sided toggle and a live
+activity log.
+
+## Configuration
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `SCANNER_IP` | required | Address of the scanner |
+| `POLL_INTERVAL` | `2` | Seconds between feeder checks |
+| `SCAN_MODE` | `Gray` | `Gray`, `Color` or `Lineart` |
+| `SCAN_RESOLUTION` | `300` | DPI. 300 is plenty for OCR |
+| `PUID` / `PGID` | `1000` | Ownership of the written PDFs |
+
+Set `PUID` and `PGID` to match whatever Paperless runs as, or it will not be
+able to read the files.
+
+## Notes
+
+The container declares the scanner statically and disables discovery, because
+Avahi is not available inside a container and `sane-airscan` will not
+initialise without one or the other.
+
+Anything loaded into the feeder gets scanned, including paper you put there
+for some other reason. There is no grace period.
+
+## License
+
+MIT

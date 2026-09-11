@@ -1,0 +1,18 @@
+services:
+  ScanWatch:
+    image: ghcr.io/blakdav/scanwatch:latest
+    container_name: ScanWatch
+    restart: unless-stopped
+    environment:
+      SCANNER_IP: 172.23.24.78
+      POLL_INTERVAL: 2
+      SCAN_MODE: Gray
+      SCAN_RESOLUTION: 300
+      PUID: 1000
+      PGID: 1000
+    volumes:
+      # Point this at the Paperless consume directory
+      - /opt/docker/paperless/consume:/out
+      - /opt/docker/scanwatch/state:/state
+    ports:
+      - "8080:8080"
