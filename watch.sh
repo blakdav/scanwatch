@@ -29,7 +29,22 @@ adf_state() {
 }
 
 stamp() {
-  date +%Y%m%d-%H%M%S
+  date +%Y-%m-%d_%H%M
+}
+
+# Two stacks fed inside the same minute would collide, so add a suffix.
+unique_name() {
+  local base
+  base=$(stamp)
+  if [ ! -e "$OUT/$base.pdf" ]; then
+    echo "$base"
+    return
+  fi
+  local n=2
+  while [ -e "$OUT/${base}_$n.pdf" ]; do
+    n=$((n + 1))
+  done
+  echo "${base}_$n"
 }
 
 # Settings below are read fresh each pass so the web interface can change
@@ -122,8 +137,8 @@ while true; do
 
           if [ "${#bk[@]}" -ne "${#fr[@]}" ]; then
             echo "page count mismatch: ${#fr[@]} fronts, ${#bk[@]} backs. Writing both stacks separately"
-            img2pdf "$f"/*.jpg -o "$OUT/scan-$(stamp)-fronts.pdf"
-            img2pdf "$d"/*.jpg -o "$OUT/scan-$(stamp)-backs.pdf"
+            img2pdf "$f"/*.jpg -o "$OUT/$(stamp)_fronts.pdf"
+            img2pdf "$d"/*.jpg -o "$OUT/$(stamp)_backs.pdf"
             rm -rf "$f"
           else
             m=$(mktemp -d)
@@ -133,14 +148,14 @@ while true; do
               cp "${bk[$i]}" "$m/$(printf '%04d' $((i * 2 + 1))).jpg"
               i=$((i + 1))
             done
-            img2pdf "$m"/*.jpg -o "$OUT/scan-$(stamp).pdf"
+            img2pdf "$m"/*.jpg -o "$OUT/$(unique_name).pdf"
             echo "wrote double-sided PDF, ${#fr[@]} sheets, $((${#fr[@]} * 2)) pages"
             rm -rf "$f" "$m"
           fi
         fi
 
       else
-        img2pdf "$d"/*.jpg -o "$OUT/scan-$(stamp).pdf"
+        img2pdf "$d"/*.jpg -o "$OUT/$(unique_name).pdf"
         echo "wrote PDF, $n pages"
       fi
     else

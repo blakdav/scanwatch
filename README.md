@@ -119,6 +119,12 @@ for some other reason. There is no grace period.
 All settings live in `/state`, so they survive a restart. Delete a file from
 that directory to put the corresponding setting back to its default.
 
+## File names
+
+PDFs are named `2026-09-10_2214.pdf`. Year first means the folder sorts
+chronologically on its own. Two stacks scanned in the same minute get `_2`,
+`_3` and so on appended rather than overwriting each other.
+
 ## Logging
 
 The web interface shows the last 100 actions. The same lines go to the
