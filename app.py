@@ -26,12 +26,14 @@ PAUSED = "/state/paused"
 RESFILE = "/state/resolution"
 POLLFILE = "/state/poll"
 MODEFILE = "/state/mode"
+IDLEFILE = "/state/idle"
 OUT = "/out"
 
 SCANNER_IP = os.environ.get("SCANNER_IP", "")
 DEFAULT_RES = 300
 DEFAULT_POLL = 2.0
 DEFAULT_MODE = "Gray"
+DEFAULT_IDLE = 15
 
 COLOR_MODES = {
     "Gray": "Greyscale",
@@ -136,6 +138,16 @@ def current_poll():
         except ValueError:
             pass
     return DEFAULT_POLL
+
+
+def current_idle():
+    if os.path.exists(IDLEFILE):
+        try:
+            with open(IDLEFILE) as fh:
+                return int(fh.read().strip())
+        except ValueError:
+            pass
+    return DEFAULT_IDLE
 
 
 def current_mode():
@@ -353,6 +365,15 @@ PAGE = """<!doctype html>
     <p class="note">Seconds between checks. Longer intervals leave the printer alone more of the time.</p>
   </div>
 
+  <div class="field">
+    <label for="idleMins">Pause after</label>
+    <div class="row">
+      <input type="number" id="idleMins" min="0" max="1440" step="5">
+      <button onclick="setIdle()">Set</button>
+    </div>
+    <p class="note">Minutes without a scan before watching stops on its own. Set to 0 to keep watching indefinitely.</p>
+  </div>
+
   <p class="status" id="status" hidden></p>
 
   <h2>Activity</h2>
@@ -378,7 +399,9 @@ async function refresh() {
     d.paused ? 'Watching paused' : 'Watching the feeder';
   document.getElementById('watchHint').textContent = d.paused
     ? 'The scanner is left alone so it can sleep. Tap before you scan.'
-    : 'Load paper and it scans. Tap to stop contacting the scanner.';
+    : (d.idle
+        ? 'Load paper and it scans. Stops on its own after ' + d.idle + ' minutes idle.'
+        : 'Load paper and it scans. Tap to stop contacting the scanner.');
 
   const db = document.getElementById('duplexBtn');
   db.classList.toggle('on', d.duplex);
@@ -432,6 +455,9 @@ async function refresh() {
 
   const ps = document.getElementById('pollSecs');
   if (document.activeElement !== ps) ps.value = d.poll;
+
+  const im = document.getElementById('idleMins');
+  if (document.activeElement !== im) im.value = d.idle;
 
   const s = document.getElementById('status');
   if (d.pending) {
@@ -489,6 +515,16 @@ async function setPoll() {
   refresh();
 }
 
+async function setIdle() {
+  const v = document.getElementById('idleMins').value;
+  await fetch('/api/idle', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ minutes: parseInt(v, 10) }),
+  });
+  refresh();
+}
+
 async function setPaper() {
   const v = document.getElementById('paper').value;
   await fetch('/api/paper', {
@@ -524,6 +560,7 @@ def state():
         poll=current_poll(),
         mode=current_mode(),
         color_modes=COLOR_MODES,
+        idle=current_idle(),
         device=DEVICE,
         log=list(_LOG),
     )
@@ -609,6 +646,23 @@ def set_mode():
     with open(MODEFILE, "w") as fh:
         fh.write(mode)
     LOG.append("scanning in " + COLOR_MODES[mode].lower())
+    return jsonify(ok=True)
+
+
+@app.route("/api/idle", methods=["POST"])
+def set_idle():
+    try:
+        mins = int((request.get_json(silent=True) or {}).get("minutes"))
+    except (TypeError, ValueError):
+        return jsonify(ok=False, error="minutes must be a whole number"), 400
+    if not 0 <= mins <= 1440:
+        return jsonify(ok=False, error="minutes must be between 0 and 1440"), 400
+    with open(IDLEFILE, "w") as fh:
+        fh.write(str(mins))
+    if mins:
+        LOG.append("will pause after %d minutes without a scan" % mins)
+    else:
+        LOG.append("automatic pausing turned off")
     return jsonify(ok=True)
 
 

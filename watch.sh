@@ -16,6 +16,7 @@ PAPER=/state/paper
 PAUSED=/state/paused
 RESFILE=/state/resolution
 POLLFILE=/state/poll
+IDLEFILE=/state/idle
 DEV="airscan:e0:brother"
 MODEFILE=/state/mode
 DEFAULT_RES=300
@@ -24,6 +25,7 @@ DEFAULT_POLL=2
 armed=1
 was_paused=0
 announced=0
+last_active=$(date +%s)
 
 adf_state() {
   curl -s --max-time 5 "http://$IP/eSCL/ScannerStatus" | grep -o 'ScannerAdf[A-Za-z]*'
@@ -55,6 +57,16 @@ current_res() {
   [ -f "$RESFILE" ] && v=$(cat "$RESFILE")
   case "$v" in
     ''|*[!0-9]*) echo "$DEFAULT_RES" ;;
+    *) echo "$v" ;;
+  esac
+}
+
+# Minutes of inactivity before the watcher stops polling. 0 disables it.
+current_idle() {
+  local v
+  [ -f "$IDLEFILE" ] && v=$(cat "$IDLEFILE")
+  case "$v" in
+    ''|*[!0-9]*) echo "15" ;;
     *) echo "$v" ;;
   esac
 }
@@ -105,6 +117,7 @@ while true; do
     echo "polling resumed"
     was_paused=0
     armed=1
+    last_active=$(date +%s)
   fi
 
   st=$(adf_state)
@@ -174,6 +187,16 @@ while true; do
 
     rm -rf "$d"
     armed=0
+    last_active=$(date +%s)
+  fi
+
+  idle=$(current_idle)
+  if [ "$idle" -gt 0 ]; then
+    elapsed=$(( $(date +%s) - last_active ))
+    if [ "$elapsed" -ge $((idle * 60)) ]; then
+      echo "nothing scanned for $idle minutes, pausing so the printer can sleep"
+      touch "$PAUSED"
+    fi
   fi
 
   if [ "$st" = "ScannerAdfEmpty" ] && [ "$armed" = "0" ]; then

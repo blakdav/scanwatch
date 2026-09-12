@@ -54,9 +54,12 @@ the driverless protocol does not expose it.
 
 Polling keeps a short conversation going with the scanner, which on some
 printers prevents them reaching their deepest sleep state. The watch toggle
-stops the polling entirely so the printer is left alone, and you turn it back
-on when you want to scan. Leave it running unless you find your printer will
-not sleep.
+stops the polling entirely so the printer is left alone.
+
+By default watching stops on its own after 15 minutes without a scan, so the
+printer is only being polled when you are actually using it. Tap the toggle
+when you want to scan and it starts watching again. Set the timeout to 0 in
+the web interface to watch indefinitely.
 
 ## Requirements
 
