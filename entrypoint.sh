@@ -2,7 +2,7 @@
 set -e
 
 if [ -z "$SCANNER_IP" ]; then
-  echo "SCANNER_IP is not set. Set it to the scanner's address, for example 172.23.24.78"
+  echo "SCANNER_IP is not set. Set it to the scanner's address, for example in .env (see .env.example)"
   exit 1
 fi
 

@@ -85,13 +85,16 @@ services:
     container_name: ScanWatch
     restart: unless-stopped
     environment:
-      SCANNER_IP: 172.23.24.78
+      SCANNER_IP: 192.168.1.50
     volumes:
       - /opt/docker/paperless/consume:/out
       - /opt/docker/scanwatch/state:/state
     ports:
       - "8080:8080"
 ```
+
+Or use the repo's `docker-compose.yml`: copy `.env.example` to `.env` and
+set `SCANNER_IP` there.
 
 Then open port 8080 in a browser for the double-sided toggle and a live
 activity log.

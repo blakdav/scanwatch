@@ -4,7 +4,8 @@ services:
     container_name: ScanWatch
     restart: unless-stopped
     environment:
-      SCANNER_IP: 172.23.24.78
+      # Set in .env (copy .env.example); not committed.
+      SCANNER_IP: ${SCANNER_IP:?set SCANNER_IP in .env}
       PUID: 1000
       PGID: 1000
       TZ: America/Los_Angeles
